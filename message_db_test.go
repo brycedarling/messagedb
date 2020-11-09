@@ -209,14 +209,16 @@ func TestWrite(t *testing.T) {
 				null := []uint8("null")
 				columns := []string{"next_position"}
 				rows := mock.NewRows(columns).FromCSVString(fmt.Sprintf("%d", tt.nextPosition))
-				// TODO: ExpectBegin/End Transaction?
+				mock.ExpectBegin()
 				mock.ExpectQuery("write_message").
 					WithArgs(msg.ID, msg.StreamName, msg.Type, null, null, msg.ExpectedVersion).
 					WillReturnRows(rows)
+				mock.ExpectCommit()
 			} else if tt.errExpected == messagedb.ErrVersionConflict {
-				// TODO: ExpectRollback?
+				mock.ExpectBegin()
 				mock.ExpectQuery("write_message").
 					WillReturnError(errors.New("Wrong Stream Version: 1337)"))
+				mock.ExpectRollback()
 			}
 
 			m := messagedb.New(db)

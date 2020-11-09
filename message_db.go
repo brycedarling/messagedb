@@ -152,12 +152,23 @@ func (m *messageDB) Write(msg *Message) (int, error) {
 		return 0, err
 	}
 
-	res := m.db.QueryRow(writeSQL, msg.ID, msg.StreamName, msg.Type, data, metadata, msg.ExpectedVersion)
+	tx, err := m.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+
+	res := tx.QueryRow(writeSQL, msg.ID, msg.StreamName, msg.Type, data, metadata, msg.ExpectedVersion)
 
 	var nextPosition int
 	err = res.Scan(&nextPosition)
 	if err != nil {
+		if err := tx.Rollback(); err != nil {
+			return 0, err
+		}
 		return 0, handleWriteError(err, msg)
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
 	}
 	return nextPosition, nil
 }
