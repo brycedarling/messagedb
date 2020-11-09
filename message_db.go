@@ -129,8 +129,6 @@ func deserializeMessage(row scanner) (*Message, error) {
 
 const writeSQL string = "SELECT message_store.write_message($1, $2, $3, $4, $5, $6)"
 
-var versionConflictRegex = regexp.MustCompile(".*Wrong.*Stream Version: (?P<ActualVersion>\\d+)\\)$")
-
 func (m *messageDB) Write(msg *Message) (int, error) {
 	if len(msg.StreamName) == 0 {
 		return 0, ErrStreamNameRequired
@@ -141,11 +139,7 @@ func (m *messageDB) Write(msg *Message) (int, error) {
 	}
 
 	if msg.ID == "" {
-		id, err := uuid.NewUUID()
-		if err != nil {
-			return 0, err
-		}
-		msg.ID = id.String()
+		msg.ID = uuid.New().String()
 	}
 
 	data, err := json.Marshal(msg.Data)
@@ -163,24 +157,30 @@ func (m *messageDB) Write(msg *Message) (int, error) {
 	var nextPosition int
 	err = res.Scan(&nextPosition)
 	if err != nil {
-		errorMatches := versionConflictRegex.FindStringSubmatch(err.Error())
-		if len(errorMatches) > 0 {
-			var expectedVersion string
-			if msg.ExpectedVersion != nil {
-				expectedVersion = fmt.Sprintf("%d", *msg.ExpectedVersion)
-			} else {
-				expectedVersion = fmt.Sprintf("%v", nil)
-			}
-			actualVersion, err := strconv.Atoi(errorMatches[1])
-			if err != nil {
-				actualVersion = -1
-			}
-			log.Printf("Version conflict on %s stream. Expected version %s, actual %d", msg.StreamName, expectedVersion, actualVersion)
-			return 0, ErrVersionConflict
-		}
-		return 0, err
+		return 0, handleWriteError(err, msg)
 	}
 	return nextPosition, nil
+}
+
+var versionConflictRegex = regexp.MustCompile(".*Wrong.*Stream Version: (?P<ActualVersion>\\d+)\\)$")
+
+func handleWriteError(err error, msg *Message) error {
+	errorMatches := versionConflictRegex.FindStringSubmatch(err.Error())
+	if len(errorMatches) == 0 {
+		return err
+	}
+	var expectedVersion string
+	if msg.ExpectedVersion != nil {
+		expectedVersion = fmt.Sprintf("%d", *msg.ExpectedVersion)
+	} else {
+		expectedVersion = fmt.Sprintf("%v", nil)
+	}
+	actualVersion, err := strconv.Atoi(errorMatches[1])
+	if err != nil {
+		actualVersion = -1
+	}
+	log.Printf("Version conflict on %s stream. Expected version %s, actual %d", msg.StreamName, expectedVersion, actualVersion)
+	return ErrVersionConflict
 }
 
 // ErrStreamNameRequired ...
