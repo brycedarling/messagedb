@@ -38,11 +38,14 @@ func TestCreateSubscription(t *testing.T) {
 
 	m := messagedb.New(db)
 
-	subscriberCalled := false
+	subscriberCalled, otherCalled := false, false
 
 	subscribers := messagedb.Subscribers{
 		messageType: func(*messagedb.Message) {
 			subscriberCalled = true
+		},
+		"other": func(*messagedb.Message) {
+			otherCalled = true
 		},
 	}
 
@@ -57,6 +60,9 @@ func TestCreateSubscription(t *testing.T) {
 
 	if !subscriberCalled {
 		t.Errorf("expected subscriber to have been called")
+	}
+	if otherCalled {
+		t.Errorf("expected other to not have been called")
 	}
 }
 
