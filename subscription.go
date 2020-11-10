@@ -150,6 +150,10 @@ func (s *subscription) updateReadPosition(position int) error {
 		return nil
 	}
 
+	return s.writeReadPosition(position)
+}
+
+func (s *subscription) writeReadPosition(position int) error {
 	if position < 1 {
 		return ErrInvalidPosition
 	}
