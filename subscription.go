@@ -3,23 +3,28 @@ package messagedb
 import (
 	"errors"
 	"fmt"
-	"log"
 	"time"
 )
 
 // Subscription ...
 type Subscription interface {
-	Subscribe() error
+	Subscribe() chan error
 	Unsubscribe()
 }
 
 // Subscriber ...
-type Subscriber func(*Message)
+type Subscriber func(Subscription, *Message)
 
 // Subscribers ...
 type Subscribers map[string]Subscriber
 
-func newSubscription(messageDB MessageDB, streamName, subscriberID string, subscribers Subscribers) Subscription {
+func newSubscription(messageDB MessageDB, streamName, subscriberID string, subscribers Subscribers) (Subscription, error) {
+	if streamName == "" {
+		return nil, ErrStreamNameRequired
+	}
+	if subscriberID == "" {
+		return nil, ErrSubscriberIDRequired
+	}
 	return &subscription{
 		messageDB:                      messageDB,
 		streamName:                     streamName,
@@ -32,8 +37,11 @@ func newSubscription(messageDB MessageDB, streamName, subscriberID string, subsc
 		positionUpdateInterval:         99,
 		messagesPerTick:                100,
 		tickIntervalMS:                 100 * time.Millisecond,
-	}
+	}, nil
 }
+
+// ErrSubscriberIDRequired ...
+var ErrSubscriberIDRequired = errors.New("missing subscriber id")
 
 type subscription struct {
 	messageDB                      MessageDB
@@ -51,31 +59,18 @@ type subscription struct {
 
 var _ Subscription = (*subscription)(nil)
 
-// ErrMissingSubscriberID ...
-var ErrMissingSubscriberID = errors.New("missing subscriber id")
-
-func (s *subscription) Subscribe() error {
-	if s.streamName == "" {
-		return ErrStreamNameRequired
-	}
-	if s.subscriberID == "" {
-		return ErrMissingSubscriberID
-	}
-
-	log.Printf("Subscribing to %s as %s", s.streamName, s.subscriberID)
-
+func (s *subscription) Subscribe() chan error {
+	errs := make(chan error)
 	if err := s.loadPosition(); err != nil {
-		return err
+		errs <- err
+		close(errs)
+		return errs
 	}
-
-	s.poll()
-
-	return nil
+	s.poll(errs)
+	return errs
 }
 
 func (s *subscription) Unsubscribe() {
-	log.Printf("Unsubscribing from %s as %s", s.streamName, s.subscriberID)
-
 	s.isPolling = false
 }
 
@@ -94,20 +89,24 @@ func (s *subscription) loadPosition() error {
 	return nil
 }
 
-func (s *subscription) poll() {
+func (s *subscription) poll(errs chan error) {
 	s.isPolling = true
 
 	ticker := time.NewTicker(s.tickIntervalMS)
 	quit := make(chan struct{})
 
 	go func() {
-		for {
+		for count := 0; ; count++ {
 			select {
 			case <-ticker.C:
+				if err := s.tick(count); err != nil {
+					errs <- err
+					s.isPolling = false
+				}
 				if !s.isPolling {
+					close(errs)
 					close(quit)
 				}
-				s.tick()
 			case <-quit:
 				ticker.Stop()
 			}
@@ -115,18 +114,15 @@ func (s *subscription) poll() {
 	}()
 }
 
-func (s *subscription) tick() {
+func (s *subscription) tick(count int) error {
 	msgs, err := s.nextBatchOfMessages()
 	if err != nil {
-		log.Printf("Error fetching batch: %s", err)
-		s.Unsubscribe()
+		return err
 	}
-
-	err = s.processBatch(msgs)
-	if err != nil {
-		log.Printf("Error processing batch: %s", err)
-		s.Unsubscribe()
+	if err = s.processBatch(msgs); err != nil {
+		return err
 	}
+	return nil
 }
 
 func (s *subscription) nextBatchOfMessages() (Messages, error) {
@@ -135,16 +131,12 @@ func (s *subscription) nextBatchOfMessages() (Messages, error) {
 
 func (s *subscription) processBatch(msgs Messages) error {
 	for _, msg := range msgs {
-		subscriber, ok := s.subscribers[msg.Type]
-		if !ok {
-			continue
-		}
+		if subscriber, ok := s.subscribers[msg.Type]; ok {
+			subscriber(s, msg)
 
-		subscriber(msg)
-
-		err := s.updateReadPosition(msg.GlobalPosition)
-		if err != nil {
-			return err
+			if err := s.updateReadPosition(msg.GlobalPosition); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -154,23 +146,22 @@ func (s *subscription) updateReadPosition(position int) error {
 	s.currentPosition = position
 	s.messagesSinceLastPositionWrite++
 
-	if s.messagesSinceLastPositionWrite == s.positionUpdateInterval {
-		// TODO: delete?
-		if position < 1 {
-			return ErrInvalidPosition
-		}
-
-		s.messagesSinceLastPositionWrite = 0
-
-		msg := NewMessage(s.subscriberStreamName, "Read")
-		msg.Data = map[string]interface{}{
-			readPositionKey: position,
-		}
-		_, err := s.messageDB.Write(msg)
-		return err
+	if s.messagesSinceLastPositionWrite < s.positionUpdateInterval {
+		return nil
 	}
 
-	return nil
+	if position < 1 {
+		return ErrInvalidPosition
+	}
+
+	s.messagesSinceLastPositionWrite = 0
+
+	msg := NewMessage(s.subscriberStreamName, "Read")
+	msg.Data = map[string]interface{}{
+		readPositionKey: position,
+	}
+	_, err := s.messageDB.Write(msg)
+	return err
 }
 
 // ErrInvalidPosition ...

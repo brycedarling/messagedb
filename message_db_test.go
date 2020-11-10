@@ -22,14 +22,14 @@ func TestCreateSubscription(t *testing.T) {
 	messageType := "type"
 
 	subscriberID := "test"
-	subscriberStream := fmt.Sprintf("subscriberPosition-%s", subscriberID)
+	subscriberStreamName := fmt.Sprintf("subscriberPosition-%s", subscriberID)
 
 	columns := []string{"id", "name", "type", "position", "global_position", "data", "metadata", "time"}
 
 	mock.ExpectQuery("get_last_stream_message").
-		WithArgs(subscriberStream).
+		WithArgs(subscriberStreamName).
 		WillReturnRows(mock.NewRows(columns).
-			AddRow(uuid.New(), subscriberStream, "Read", 0, 0, nil, nil, time.Now()))
+			AddRow(uuid.New(), subscriberStreamName, "Read", 0, 0, nil, nil, time.Now()))
 
 	mock.ExpectQuery("get_category_messages").
 		WithArgs(streamName, 1, 100).
@@ -41,28 +41,37 @@ func TestCreateSubscription(t *testing.T) {
 	subscriberCalled, otherCalled := false, false
 
 	subscribers := messagedb.Subscribers{
-		messageType: func(*messagedb.Message) {
+		messageType: func(sub messagedb.Subscription, m *messagedb.Message) {
 			subscriberCalled = true
+
+			sub.Unsubscribe()
 		},
-		"other": func(*messagedb.Message) {
+		"other": func(sub messagedb.Subscription, m *messagedb.Message) {
 			otherCalled = true
+
+			sub.Unsubscribe()
 		},
 	}
 
-	sub := m.CreateSubscription(streamName, subscriberID, subscribers)
-
-	err = sub.Subscribe()
+	sub, err := m.CreateSubscription(streamName, subscriberID, subscribers)
 	if err != nil {
-		t.Fatalf("unexpected error '%s' when subscribing", err)
+		t.Fatalf("unexpected error '%s' when creating subscription", err)
 	}
 
-	time.Sleep(110 * time.Millisecond)
+	errs := sub.Subscribe()
+	for err := range errs {
+		t.Errorf("unexpected error '%s' when subscribed", err)
+	}
 
 	if !subscriberCalled {
 		t.Errorf("expected subscriber to have been called")
 	}
 	if otherCalled {
 		t.Errorf("expected other to not have been called")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %s", err)
 	}
 }
 

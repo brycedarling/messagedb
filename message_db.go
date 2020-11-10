@@ -15,7 +15,7 @@ import (
 
 // MessageDB ...
 type MessageDB interface {
-	CreateSubscription(streamName, subscriberID string, subscribers Subscribers) Subscription
+	CreateSubscription(streamName, subscriberID string, subscribers Subscribers) (Subscription, error)
 	Read(streamName string, position, batchSize int) (Messages, error)
 	ReadAll(streamName string) (Messages, error)
 	ReadLast(streamName string) (*Message, error)
@@ -33,7 +33,7 @@ type messageDB struct {
 
 var _ MessageDB = (*messageDB)(nil)
 
-func (m *messageDB) CreateSubscription(streamName, subscriberID string, subscribers Subscribers) Subscription {
+func (m *messageDB) CreateSubscription(streamName, subscriberID string, subscribers Subscribers) (Subscription, error) {
 	return newSubscription(m, streamName, subscriberID, subscribers)
 }
 
