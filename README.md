@@ -1,4 +1,4 @@
-# Go MessageDB Client
+# Go Message DB Client
 
 A barebones client for [message-db](https://github.com/message-db/message-db) implemented in Go.
 
