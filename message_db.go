@@ -127,7 +127,7 @@ func deserializeMessage(row scanner) (*Message, error) {
 	return msg, nil
 }
 
-const writeSQL string = "SELECT message_store.write_message($1, $2, $3, $4, $5, $6)"
+const writeSQL string = "SELECT write_message($1, $2, $3, $4, $5, $6)"
 
 func (m *messageDB) Write(msg *Message) (int, error) {
 	if len(msg.StreamName) == 0 {
