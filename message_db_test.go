@@ -38,27 +38,26 @@ func TestCreateSubscription(t *testing.T) {
 
 	m := messagedb.New(db)
 
-	subscriberCalled, otherCalled := false, false
-
-	subscribers := messagedb.Subscribers{
-		messageType: func(sub messagedb.Subscription, m *messagedb.Message) {
-			subscriberCalled = true
-
-			sub.Unsubscribe()
-		},
-		"other": func(sub messagedb.Subscription, m *messagedb.Message) {
-			otherCalled = true
-
-			sub.Unsubscribe()
-		},
-	}
-
-	sub, err := m.CreateSubscription(streamName, subscriberID, subscribers)
+	sub, err := m.CreateSubscription(streamName, subscriberID)
 	if err != nil {
 		t.Fatalf("unexpected error '%s' when creating subscription", err)
 	}
 
-	errs := sub.Subscribe()
+	subscriberCalled, otherCalled := false, false
+
+	errs := sub.Subscribe(messagedb.Subscribers{
+		messageType: func(m *messagedb.Message) {
+			subscriberCalled = true
+
+			sub.Unsubscribe()
+		},
+		"other": func(m *messagedb.Message) {
+			otherCalled = true
+
+			sub.Unsubscribe()
+		},
+	})
+
 	for err := range errs {
 		t.Errorf("unexpected error '%s' when subscribed", err)
 	}

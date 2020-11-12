@@ -6,19 +6,19 @@ import (
 	"time"
 )
 
-// Subscription ...
-type Subscription interface {
-	Subscribe() chan error
-	Unsubscribe()
-}
-
 // Subscriber ...
-type Subscriber func(Subscription, *Message)
+type Subscriber func(*Message)
 
 // Subscribers ...
 type Subscribers map[string]Subscriber
 
-func newSubscription(messageDB MessageDB, streamName, subscriberID string, subscribers Subscribers) (Subscription, error) {
+// Subscription ...
+type Subscription interface {
+	Subscribe(Subscribers) chan error
+	Unsubscribe()
+}
+
+func newSubscription(messageDB MessageDB, streamName, subscriberID string) (Subscription, error) {
 	if streamName == "" {
 		return nil, ErrStreamNameRequired
 	}
@@ -30,7 +30,6 @@ func newSubscription(messageDB MessageDB, streamName, subscriberID string, subsc
 		streamName:                     streamName,
 		subscriberID:                   subscriberID,
 		subscriberStreamName:           fmt.Sprintf("subscriberPosition-%s", subscriberID),
-		subscribers:                    subscribers,
 		currentPosition:                0,
 		messagesSinceLastPositionWrite: 0,
 		isPolling:                      false,
@@ -48,18 +47,19 @@ type subscription struct {
 	streamName                     string
 	subscriberID                   string
 	subscriberStreamName           string
-	subscribers                    map[string]Subscriber
 	currentPosition                int
 	messagesSinceLastPositionWrite int
 	isPolling                      bool
 	positionUpdateInterval         int
 	messagesPerTick                int
 	tickIntervalMS                 time.Duration
+	subscribers                    Subscribers
 }
 
 var _ Subscription = (*subscription)(nil)
 
-func (s *subscription) Subscribe() chan error {
+func (s *subscription) Subscribe(subscribers Subscribers) chan error {
+	s.subscribers = subscribers
 	errs := make(chan error)
 	if err := s.loadPosition(); err != nil {
 		errs <- err
@@ -132,7 +132,7 @@ func (s *subscription) nextBatchOfMessages() (Messages, error) {
 func (s *subscription) processBatch(msgs Messages) error {
 	for _, msg := range msgs {
 		if subscriber, ok := s.subscribers[msg.Type]; ok {
-			subscriber(s, msg)
+			subscriber(msg)
 
 			if err := s.updateReadPosition(msg.GlobalPosition); err != nil {
 				return err
