@@ -112,14 +112,12 @@ func deserializeMessage(row scanner) (*Message, error) {
 		return nil, err
 	}
 	if len(data) > 0 {
-		err = json.Unmarshal(data, &msg.Data)
-		if err != nil {
+		if err = json.Unmarshal(data, &msg.Data); err != nil {
 			return nil, err
 		}
 	}
 	if len(metadata) > 0 {
-		err = json.Unmarshal(metadata, &msg.Metadata)
-		if err != nil {
+		if err = json.Unmarshal(metadata, &msg.Metadata); err != nil {
 			return nil, err
 		}
 	}
@@ -159,8 +157,7 @@ func (m *messageDB) Write(msg *Message) (int, error) {
 	res := tx.QueryRow(writeSQL, msg.ID, msg.StreamName, msg.Type, data, metadata, msg.ExpectedVersion)
 
 	var nextPosition int
-	err = res.Scan(&nextPosition)
-	if err != nil {
+	if err = res.Scan(&nextPosition); err != nil {
 		if err := tx.Rollback(); err != nil {
 			return 0, err
 		}
