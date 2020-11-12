@@ -193,14 +193,46 @@ func TestWrite(t *testing.T) {
 		name            string
 		streamName      string
 		messageType     string
-		nextPosition    int
 		expectedVersion *int
-		errExpected     error
+		expect          func(sqlmock.Sqlmock, *messagedb.Message)
+		handleError     func(error)
 	}{
-		{"stream name required", "", "type", 0, nil, messagedb.ErrStreamNameRequired},
-		{"type required", "stream", "", 0, nil, messagedb.ErrTypeRequired},
-		{"version conflict", "test", "type", 0, nil, messagedb.ErrVersionConflict},
-		{"valid", "stream", "type", 0, nil, nil},
+		{"stream name required", "", "type", nil, nil, func(err error) {
+			if err != messagedb.ErrStreamNameRequired {
+				t.Errorf("got %s, want error %s", err, messagedb.ErrStreamNameRequired)
+			}
+		}},
+		{"type required", "stream", "", nil, nil, func(err error) {
+			if err != messagedb.ErrTypeRequired {
+				t.Errorf("got %s, want error %s", err, messagedb.ErrTypeRequired)
+			}
+		}},
+		{"version conflict", "test", "type", nil, func(mock sqlmock.Sqlmock, msg *messagedb.Message) {
+			mock.ExpectBegin()
+			mock.ExpectQuery("write_message").
+				WillReturnError(errors.New("Wrong Stream Version: 1337)"))
+			mock.ExpectRollback()
+		}, func(err error) {
+			if _, ok := err.(messagedb.ErrVersionConflict); !ok {
+				t.Errorf("got %s, want error version conflict", err)
+			}
+		}},
+		{"valid", "stream", "type", nil,
+			func(mock sqlmock.Sqlmock, msg *messagedb.Message) {
+				null := []uint8("null")
+				columns := []string{"next_position"}
+				rows := mock.NewRows(columns).FromCSVString("0")
+				mock.ExpectBegin()
+				mock.ExpectQuery("write_message").
+					WithArgs(msg.ID, msg.StreamName, msg.Type, null, null, msg.ExpectedVersion).
+					WillReturnRows(rows)
+				mock.ExpectCommit()
+			},
+			func(err error) {
+				if err != nil {
+					t.Errorf("got %s, want %v", err, nil)
+				}
+			}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -213,33 +245,14 @@ func TestWrite(t *testing.T) {
 			msg := messagedb.NewMessage(tt.streamName, tt.messageType)
 			msg.ExpectedVersion = tt.expectedVersion
 
-			if tt.errExpected == nil {
-				null := []uint8("null")
-				columns := []string{"next_position"}
-				rows := mock.NewRows(columns).FromCSVString(fmt.Sprintf("%d", tt.nextPosition))
-				mock.ExpectBegin()
-				mock.ExpectQuery("write_message").
-					WithArgs(msg.ID, msg.StreamName, msg.Type, null, null, msg.ExpectedVersion).
-					WillReturnRows(rows)
-				mock.ExpectCommit()
-			} else if tt.errExpected == messagedb.ErrVersionConflict {
-				mock.ExpectBegin()
-				mock.ExpectQuery("write_message").
-					WillReturnError(errors.New("Wrong Stream Version: 1337)"))
-				mock.ExpectRollback()
+			if tt.expect != nil {
+				tt.expect(mock, msg)
 			}
 
 			m := messagedb.New(db)
 
-			nextPosition, err := m.Write(msg)
-			if err != nil && tt.errExpected == nil {
-				t.Errorf("unexpected error when writing message: %s", err)
-			} else if tt.errExpected != nil && err != tt.errExpected {
-				t.Errorf("got %s, want error %s", err, tt.errExpected)
-			}
-
-			if nextPosition != tt.nextPosition {
-				t.Errorf("got %d, want position %d", nextPosition, tt.nextPosition)
+			if _, err = m.Write(msg); err != nil && tt.handleError != nil {
+				tt.handleError(err)
 			}
 
 			if err := mock.ExpectationsWereMet(); err != nil {

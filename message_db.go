@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -180,18 +179,11 @@ func handleWriteError(err error, msg *Message) error {
 	if len(errorMatches) == 0 {
 		return err
 	}
-	var expectedVersion string
-	if msg.ExpectedVersion != nil {
-		expectedVersion = fmt.Sprintf("%d", *msg.ExpectedVersion)
-	} else {
-		expectedVersion = fmt.Sprintf("%v", nil)
-	}
 	actualVersion, err := strconv.Atoi(errorMatches[1])
 	if err != nil {
 		actualVersion = -1
 	}
-	log.Printf("Version conflict on %s stream. Expected version %s, actual %d", msg.StreamName, expectedVersion, actualVersion)
-	return ErrVersionConflict
+	return ErrVersionConflict{msg.StreamName, actualVersion, msg.ExpectedVersion}
 }
 
 // ErrStreamNameRequired ...
@@ -201,4 +193,18 @@ var ErrStreamNameRequired = errors.New("missing stream name")
 var ErrTypeRequired = errors.New("missing type")
 
 // ErrVersionConflict ...
-var ErrVersionConflict = errors.New("version conflict")
+type ErrVersionConflict struct {
+	StreamName      string
+	ActualVersion   int
+	ExpectedVersion *int
+}
+
+func (err ErrVersionConflict) Error() string {
+	var expectedVersion string
+	if err.ExpectedVersion != nil {
+		expectedVersion = fmt.Sprintf("%d", *err.ExpectedVersion)
+	} else {
+		expectedVersion = fmt.Sprintf("%v", nil)
+	}
+	return fmt.Sprintf("version conflict on '%s' stream: got %d, want %s", err.StreamName, err.ActualVersion, expectedVersion)
+}
