@@ -134,7 +134,7 @@ func (s *subscription) processBatch(msgs Messages) error {
 		if subscriber, ok := s.subscribers[msg.Type]; ok {
 			subscriber(msg)
 
-			if err := s.updateReadPosition(msg.GlobalPosition); err != nil {
+			if err := s.updateReadPosition(msg.Position); err != nil {
 				return err
 			}
 		}
