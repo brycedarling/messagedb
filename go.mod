@@ -1,4 +1,4 @@
-module github.com/brycedarling/messagedb
+module github.com/nurseybushc/messagedb
 
 go 1.15
 
