@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/brycedarling/messagedb"
+	"github.com/nurseybushc/messagedb"
 	"github.com/google/uuid"
 )
 
