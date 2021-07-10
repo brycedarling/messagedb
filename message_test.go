@@ -3,7 +3,7 @@ package messagedb_test
 import (
 	"testing"
 
-	"github.com/nurseybushc/messagedb"
+	"github.com/brycedarling/messagedb"
 )
 
 func TestNewMessage(t *testing.T) {
