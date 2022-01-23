@@ -53,3 +53,15 @@ func main() {
 
 ```
 
+# Running integration tests
+
+Integration tests require Docker to be installed and running before executing the integration tests.  They execute against version [MessageDB](https://github.com/message-db/message-db) `v1.2.6`, which is set in the `Dockerfile`. 
+
+* `docker-compose build` creates the `local/messagedb` image
+* `docker-compose up -d` starts a local Postgres instance and initializes the MessageDB
+* `go test --tags integration` will run all tests, including the integration tests.
+
+* `docker-compose down` will shut down MessageDB, but keep its state.  The next time it is started, the existing MessageDB will be used.
+* `docker-compose down -v` will shut down MessageDB and destroy its state.  The next time it is started, a MessageDB will be initialized.
+
+The default connection URL is `postgresql://message_store:@localhost:5432/message_store`, no password is required.
