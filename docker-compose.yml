@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+  messagedb:
+    build:
+      context: .
+    image: local/messagedb
+    env_file: .env
+    ports:
+      - "${MESSAGE_STORE_PORT}:5432"
+    command: "-c log_statement=all"
+
