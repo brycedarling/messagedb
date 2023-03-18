@@ -31,6 +31,7 @@ func newSubscription(messageDB MessageDB, streamName, subscriberID string) (Subs
 		subscriberID:                   subscriberID,
 		subscriberStreamName:           fmt.Sprintf("subscriberPosition-%s", subscriberID),
 		currentPosition:                0,
+		globalPosition:                 0,
 		messagesSinceLastPositionWrite: 0,
 		isPolling:                      false,
 		positionUpdateInterval:         99,
@@ -48,6 +49,7 @@ type subscription struct {
 	subscriberID                   string
 	subscriberStreamName           string
 	currentPosition                int
+	globalPosition                 int
 	messagesSinceLastPositionWrite int
 	isPolling                      bool
 	positionUpdateInterval         int
@@ -74,7 +76,10 @@ func (s *subscription) Unsubscribe() {
 	s.isPolling = false
 }
 
-const readPositionKey string = "position"
+const (
+	readPositionKey   string = "position"
+	globalPositionKey string = "globalPosition"
+)
 
 func (s *subscription) loadPosition() error {
 	msg, err := s.messageDB.ReadLast(s.subscriberStreamName)
@@ -126,7 +131,7 @@ func (s *subscription) tick(count int) error {
 }
 
 func (s *subscription) nextBatchOfMessages() (Messages, error) {
-	return s.messageDB.Read(s.streamName, s.currentPosition+1, s.messagesPerTick)
+	return s.messageDB.Read(s.streamName, s.globalPosition+1, s.messagesPerTick)
 }
 
 func (s *subscription) processBatch(msgs Messages) error {
@@ -134,7 +139,7 @@ func (s *subscription) processBatch(msgs Messages) error {
 		if subscriber, ok := s.subscribers[msg.Type]; ok {
 			subscriber(msg)
 
-			if err := s.updateReadPosition(msg.Position); err != nil {
+			if err := s.updateReadPosition(msg.Position, msg.GlobalPosition); err != nil {
 				return err
 			}
 		}
@@ -142,19 +147,20 @@ func (s *subscription) processBatch(msgs Messages) error {
 	return nil
 }
 
-func (s *subscription) updateReadPosition(position int) error {
+func (s *subscription) updateReadPosition(position, globalPosition int) error {
 	s.currentPosition = position
+	s.globalPosition = globalPosition
 	s.messagesSinceLastPositionWrite++
 
 	if s.messagesSinceLastPositionWrite < s.positionUpdateInterval {
 		return nil
 	}
 
-	return s.writeReadPosition(position)
+	return s.writeReadPosition(position, globalPosition)
 }
 
-func (s *subscription) writeReadPosition(position int) error {
-	if position < 1 {
+func (s *subscription) writeReadPosition(position, globalPosition int) error {
+	if position < 1 || globalPosition < 1 {
 		return ErrInvalidPosition
 	}
 
@@ -162,7 +168,8 @@ func (s *subscription) writeReadPosition(position int) error {
 
 	msg := NewMessage(s.subscriberStreamName, "Read")
 	msg.Data = map[string]interface{}{
-		readPositionKey: position,
+		readPositionKey:   position,
+		globalPositionKey: globalPosition,
 	}
 	_, err := s.messageDB.Write(msg)
 	return err
